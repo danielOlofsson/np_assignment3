@@ -16,20 +16,32 @@
 // Included to get the support library
 #include <calcLib.h>
 
-
-
-
-
-void *get_in_addr(struct sockaddr *sa)
-{
-	if (sa->sa_family == AF_INET) {
-		return &(((struct sockaddr_in*)sa)->sin_addr);
-	}
-
-	return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
+#define DEBUG
 
 using namespace std;
+
+
+bool timeoutSend(int& socket)
+{
+  bool success = true;
+  int recivedValue = 0;
+  char errorMsg[100] = "ERROR TO\n";
+  recivedValue = send(socket, &errorMsg, strlen(errorMsg), 0);
+  if(recivedValue < 0)
+  {
+    perror("Problem sending msg of operation value value\n");
+    success = false;
+  }
+  else
+  {
+    #ifdef DEBUG
+    printf("sent msg: %s  with size: %ld ",errorMsg, strlen(errorMsg));
+    #endif
+    close(socket);
+  }
+
+  return success;
+}
 
 
 int main(int argc, char *argv[]){
@@ -66,6 +78,9 @@ int main(int argc, char *argv[]){
   int recvedValue;
   int backlog = 5;
 
+  struct timeval timeout; 
+  timeout.tv_sec = 5;
+  timeout.tv_usec = 0;
 
   double fv1,fv2,fresult;
   int iv1 = 0,iv2 = 0,iresult = 0;
@@ -73,8 +88,6 @@ int main(int argc, char *argv[]){
   double recivedFloatResutl;
   char msg[1450];
 
-
-  
 
   memset(&hints, 0, sizeof hints);
   hints.ai_family = AF_UNSPEC;
@@ -99,6 +112,12 @@ int main(int argc, char *argv[]){
         sizeof(int)) == -1) {
       perror("setsockopt");
       exit(1);
+    }
+
+    if(setsockopt(serverSocket,SOL_SOCKET,SO_RCVTIMEO,&timeout,sizeof(timeout)) < 0)
+    {
+      fprintf(stderr,"failed to set socketopt");
+      exit(2);
     }
 
     if (bind(serverSocket, p->ai_addr, p->ai_addrlen) == -1) {
@@ -134,10 +153,16 @@ int main(int argc, char *argv[]){
   int dL, sL;
   while(1)
   {
-  
     klient_socket = accept(serverSocket, (struct sockaddr *)&their_addr, &sin_size);
     if( klient_socket == -1)
     {
+      if(errno == EAGAIN)
+      {
+        #ifdef DEBUG
+        printf("Timeout on Accept!\n");
+        #endif
+        continue;
+      }
       perror("Accept Error");
       continue;
     }
@@ -150,11 +175,12 @@ int main(int argc, char *argv[]){
       if(sL == -1)
       {
         printf("-1 på send\n");
-        break;
+        continue;
       }
       else if(sL == 0)
       {
         printf("0 på send\n");
+        continue;
       }
       else
       {
@@ -166,8 +192,12 @@ int main(int argc, char *argv[]){
     dL = recv(klient_socket,&minBuffer, sizeof(minBuffer), 0);
     if(dL == -1)
       {
-        perror("Problem when trying to receve from client\n");
-        break;
+        if(errno == EAGAIN)
+        {
+          timeoutSend(klient_socket);
+        }
+        perror("Problem when trying to recive from client\n");
+        continue;
       }
       else
       {
@@ -238,7 +268,7 @@ int main(int argc, char *argv[]){
       if(sL < 0)
       {
         perror("Problem sending msg of operation value value\n");
-        break;
+        continue;
       }
       else
       {
@@ -251,8 +281,12 @@ int main(int argc, char *argv[]){
       dL = recv(klient_socket,&minBuffer, sizeof(minBuffer), 0);
       if(dL == -1)
       {
-        perror("Problem when trying to recieve from client.\n");
-        break;
+        if(errno == EAGAIN)
+        {
+          timeoutSend(klient_socket);
+        }
+        perror("Problem when trying to recive from client\n");
+        continue;
       }
       else
       {
@@ -293,7 +327,7 @@ int main(int argc, char *argv[]){
       if(sL < 0)
       {
         perror("Problem sending OK or Error msg\n");
-        break;
+        continue;
       }
       else
       {
