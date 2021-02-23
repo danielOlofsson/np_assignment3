@@ -10,13 +10,14 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/types.h> 
-
+#include <iostream>
+#include <cstdlib>
 
 // Included to get the support library
 #include <calcLib.h>
 
 
-#define DEBUG
+
 
 
 void *get_in_addr(struct sockaddr *sa)
@@ -50,11 +51,12 @@ int main(int argc, char *argv[]){
   // *Dstport points to whatever string came after the delimiter. 
 
   /* Do magic */
+  #ifdef DEBUG
   int port=atoi(Destport);
-#ifdef DEBUG  
   printf("Host %s, and port %d.\n",Desthost,port);
-#endif
+  #endif
 
+  initCalcLib();
 
   int serverSocket;  // listen on sock_fd, new connection on new_fd
   struct addrinfo hints, *servinfo, *p;
@@ -63,6 +65,16 @@ int main(int argc, char *argv[]){
   int yes=1; 
   int recvedValue;
   int backlog = 5;
+
+
+  double fv1,fv2,fresult;
+  int iv1 = 0,iv2 = 0,iresult = 0;
+  int recivedIntResult;
+  double recivedFloatResutl;
+  char msg[1450];
+
+
+  
 
   memset(&hints, 0, sizeof hints);
   hints.ai_family = AF_UNSPEC;
@@ -81,7 +93,7 @@ int main(int argc, char *argv[]){
     {
       perror("server: socket");
       continue;
-    }
+  }
 
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes,
         sizeof(int)) == -1) {
@@ -110,11 +122,14 @@ int main(int argc, char *argv[]){
     exit(1);
   }
 
-  printf("server: waiting for connections BINJER...\n");
+  #ifdef DEBUG
+  printf("server: waiting for connections\n");
+  #endif
 
-  sin_size = sizeof(sin_size);
+  sin_size = sizeof(their_addr);
 
   int klient_socket;
+  char supportedProtocol[] = "TEXT TCP 1.0\n\n";
   char minBuffer[1000];
   int dL, sL;
   while(1)
@@ -123,33 +138,15 @@ int main(int argc, char *argv[]){
     klient_socket = accept(serverSocket, (struct sockaddr *)&their_addr, &sin_size);
     if( klient_socket == -1)
     {
-      perror("Accept");
+      perror("Accept Error");
       continue;
     }
+    #ifdef DEBUG
+    printf("klient ansluten..\n");
+    #endif
+    memset(&minBuffer,0,sizeof(minBuffer));
 
-    printf("klient ansluten!!!\n");
-    memset(&minBuffer,0,1000);
-    dL = recv(klient_socket,&minBuffer, sizeof(minBuffer), 0);
-    while(1)
-    {
-
-  
-      if(dL == -1)
-      {
-        perror("problem med klient.\n");
-        break;
-
-      }
-      else if( dL == 0)
-      {
-        printf(" fick 0 bytes. \n");
-        break;
-      }
-      else
-      {
-        printf("%s [%d]\n", minBuffer, dL);
-      }
-      sL = send(klient_socket, &minBuffer, strlen(minBuffer), 0);
+    sL = send(klient_socket, &supportedProtocol, strlen(supportedProtocol), 0);
       if(sL == -1)
       {
         printf("-1 på send\n");
@@ -161,8 +158,154 @@ int main(int argc, char *argv[]){
       }
       else
       {
-        printf("allt normalt\n");
+        #ifdef DEBUG
+        printf("sent msg: %s size = %d\n", supportedProtocol, sL);
+        #endif
       }
-    } 
+      
+    dL = recv(klient_socket,&minBuffer, sizeof(minBuffer), 0);
+    if(dL == -1)
+      {
+        perror("Problem when trying to receve from client\n");
+        break;
+      }
+      else
+      {
+        #ifdef DEBUG
+        printf("recived msg: %s\n", minBuffer);
+        #endif
+      }
+    if(strcmp(minBuffer, "OK\n") == 0)
+    {
+      #ifdef DEBUG
+      printf("OK RECIVED: %s\n", minBuffer);
+      #endif
+
+      char *op=randomType();
+      memset(msg, 0,sizeof(msg));
+
+      if(op[0]=='f')
+      { /* We got a floating op  */
+      #ifdef DEBUG
+      printf("Float\t");
+      #endif
+      fv1=randomFloat();
+      fv2=randomFloat();
+
+      if(strcmp(op,"fadd")==0)
+      {
+        fresult=fv1+fv2;
+      } 
+      else if (strcmp(op, "fsub")==0)
+      {
+        fresult=fv1-fv2;
+      } 
+      else if (strcmp(op, "fmul")==0)
+      {
+        fresult=fv1*fv2;
+      } 
+      else if (strcmp(op, "fdiv")==0)
+      {
+        fresult=fv1/fv2;
+      }
+      printf("Servers result: %8.8g",fresult);
+      sprintf(msg, "%s %8.8g %8.8g\n",op,fv1,fv2);
+
+      } 
+      else 
+      {
+        iv1 = randomInt();
+        iv2 = randomInt();
+
+        if(strcmp(op,"add")==0)
+        {
+          iresult=iv1+iv2;
+        } else if (strcmp(op, "sub")==0)
+        {
+          iresult=iv1-iv2;
+        } else if (strcmp(op, "mul")==0)
+        {
+          iresult=iv1*iv2;
+        } else if (strcmp(op, "div")==0)
+        {
+          iresult=iv1/iv2;
+        }
+        printf("Servers result: %d",iresult);
+        sprintf(msg, "%s %d %d\n",op,iv1,iv2);
+      }
+
+      sL = send(klient_socket, &msg, strlen(msg), 0);
+      if(sL < 0)
+      {
+        perror("Problem sending msg of operation value value\n");
+        break;
+      }
+      else
+      {
+        #ifdef DEBUG
+        printf("sent msg: %s  with size: %d ",msg, sL);
+        #endif
+      }
+      
+      memset(&minBuffer,0,sizeof(minBuffer));
+      dL = recv(klient_socket,&minBuffer, sizeof(minBuffer), 0);
+      if(dL == -1)
+      {
+        perror("Problem when trying to recieve from client.\n");
+        break;
+      }
+      else
+      {
+        #ifdef DEBUG
+        printf("recived msg: %s\n", minBuffer);
+        #endif
+      }
+      memset(msg,0,sizeof(msg));
+      if(op[0]=='f')
+      {
+        sscanf(minBuffer,"%lg",&recivedFloatResutl);
+        double quotient;
+        quotient = abs(recivedFloatResutl - fresult);
+        if(quotient < 0.0001)
+        {
+          strcpy(msg,"OK\n");
+        }
+        else
+        {
+          strcpy(msg,"ERROR\n");
+        }
+      }
+      else
+      {
+        sscanf(minBuffer,"%d",&recivedIntResult);
+        
+        if(recivedIntResult == iresult)
+        {
+          strcpy(msg,"OK\n");
+        }
+        else
+        {
+          strcpy(msg,"ERROR\n");
+        }
+      }
+
+      sL = send(klient_socket, &msg, strlen(msg), 0);
+      if(sL < 0)
+      {
+        perror("Problem sending OK or Error msg\n");
+        break;
+      }
+      else
+      {
+        #ifdef DEBUG
+        printf("sent msg: %s with size: %d ",msg, sL);
+        #endif
+      }
+    }
+    else
+    {
+      printf("NOT OK client will disconnect\n");
+    }
+
   }
 }
